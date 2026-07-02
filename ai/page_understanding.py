@@ -2,8 +2,8 @@
 ai/page_understanding.py
 ------------------------
 Page Understanding Agent.
-Sends page HTML + visible text to Claude and returns a structured
-analysis of the page purpose, components, and recommended tests.
+Sends page HTML + visible text to the active LLM provider and returns
+a structured analysis of the page purpose, components, and recommended tests.
 """
 
 from __future__ import annotations
@@ -11,43 +11,29 @@ from __future__ import annotations
 import json
 import re
 
-import anthropic
 from loguru import logger
 
-from config.settings  import ANTHROPIC_API_KEY, AI_MODEL, AI_MAX_TOKENS
-from config.prompts   import page_understanding_prompt
-from crawler.sitemap  import PageInfo
+from ai.llm_client   import LLMClient
+from config.prompts  import page_understanding_prompt
+from crawler.sitemap import PageInfo
 
 
 class PageUnderstandingAgent:
-    """
-    Uses Claude to interpret a page's purpose and identify what
-    should be tested.
-    """
+    """Uses the configured LLM to interpret a page's purpose and test needs."""
 
     def __init__(self) -> None:
-        self._client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        self._llm = LLMClient()
 
     def analyse(self, page: PageInfo) -> dict:
-        """
-        Analyse a single page and populate page.analysis.
-
-        Returns the analysis dict.
-        """
-        if not ANTHROPIC_API_KEY:
-            logger.warning("ANTHROPIC_API_KEY not set — skipping AI page analysis")
+        if not self._llm.is_available():
+            logger.warning("LLM provider not configured — skipping AI page analysis")
             return self._fallback_analysis(page)
 
         prompt = page_understanding_prompt(page.html, page.url, page.visible_text)
 
         try:
-            response = self._client.messages.create(
-                model=AI_MODEL,
-                max_tokens=AI_MAX_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw_text = response.content[0].text
-            analysis = self._parse_json(raw_text)
+            raw      = self._llm.chat(prompt)
+            analysis = self._parse_json(raw)
             analysis["url"] = page.url
             page.analysis   = analysis
             logger.info("AI analysed page: {} (type={})", page.url, analysis.get("page_type", "?"))
@@ -57,25 +43,22 @@ class PageUnderstandingAgent:
             logger.error("PageUnderstandingAgent failed for {}: {}", page.url, exc)
             return self._fallback_analysis(page)
 
-    # ── Helpers ────────────────────────────────────────────────────────────────
-
     @staticmethod
     def _parse_json(text: str) -> dict:
-        """Strip markdown fences and parse JSON."""
         cleaned = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
         return json.loads(cleaned)
 
     @staticmethod
     def _fallback_analysis(page: PageInfo) -> dict:
         return {
-            "page_name": page.title or page.url,
-            "page_type": "Unknown",
-            "criticality": "medium",
-            "url": page.url,
-            "components": [],
-            "primary_actions": [],
-            "recommended_tests": ["Basic page load", "Link validation"],
-            "security_tests": [],
-            "accessibility_tests": [],
-            "notes": "AI analysis unavailable — ANTHROPIC_API_KEY not set.",
+            "page_name":          page.title or page.url,
+            "page_type":          "Unknown",
+            "criticality":        "medium",
+            "url":                page.url,
+            "components":         [],
+            "primary_actions":    [],
+            "recommended_tests":  ["Basic page load", "Link validation"],
+            "security_tests":     [],
+            "accessibility_tests":[],
+            "notes":              "AI analysis unavailable — check AI_PROVIDER and API key in .env",
         }

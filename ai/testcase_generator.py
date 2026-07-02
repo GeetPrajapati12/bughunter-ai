@@ -10,38 +10,28 @@ from __future__ import annotations
 import json
 import re
 
-import anthropic
 from loguru import logger
 
-from config.settings import ANTHROPIC_API_KEY, AI_MODEL, AI_MAX_TOKENS
-from config.prompts  import test_case_generation_prompt
+from ai.llm_client  import LLMClient
+from config.prompts import test_case_generation_prompt
 
 
 class TestCaseGeneratorAgent:
-    """Generate exhaustive test cases for a page using Claude."""
+    """Generate exhaustive test cases for a page using the configured LLM."""
 
     def __init__(self) -> None:
-        self._client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        self._llm = LLMClient()
 
     def generate(self, page_analysis: dict) -> list[dict]:
-        """
-        Return a list of test case dicts for the given page analysis.
-        """
-        if not ANTHROPIC_API_KEY:
-            logger.warning("ANTHROPIC_API_KEY not set — returning generic test cases")
+        if not self._llm.is_available():
+            logger.warning("LLM provider not configured — returning generic test cases")
             return self._generic_tests(page_analysis)
 
         prompt = test_case_generation_prompt(json.dumps(page_analysis, indent=2))
 
         try:
-            response = self._client.messages.create(
-                model=AI_MODEL,
-                max_tokens=AI_MAX_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw_text   = response.content[0].text
-            test_cases = self._parse_json(raw_text)
-
+            raw        = self._llm.chat(prompt)
+            test_cases = self._parse_json(raw)
             logger.info(
                 "TestCaseGeneratorAgent: {} test cases for page '{}'",
                 len(test_cases),
@@ -53,8 +43,6 @@ class TestCaseGeneratorAgent:
             logger.error("TestCaseGeneratorAgent failed: {}", exc)
             return self._generic_tests(page_analysis)
 
-    # ── Helpers ────────────────────────────────────────────────────────────────
-
     @staticmethod
     def _parse_json(text: str) -> list[dict]:
         cleaned = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
@@ -63,7 +51,6 @@ class TestCaseGeneratorAgent:
 
     @staticmethod
     def _generic_tests(analysis: dict) -> list[dict]:
-        """Minimal fallback test cases that apply to any page."""
         return [
             {
                 "id": "TC-GENERIC-001",

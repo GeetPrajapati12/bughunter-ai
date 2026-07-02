@@ -1,19 +1,36 @@
-selenium>=4.21.0
-playwright>=1.44.0
-anthropic>=0.27.0
-beautifulsoup4>=4.12.3
-lxml>=5.3.0
-requests>=2.32.3
-Pillow>=10.4.0
-jinja2>=3.1.4
-python-dotenv>=1.0.1
-rich>=13.7.1
-loguru>=0.7.2
-pydantic>=2.7.3
-aiohttp>=3.9.5
-tqdm>=4.66.4
+# ── Browser Automation ────────────────────────────────────────────────────────
+selenium==4.21.0
+playwright==1.44.0
 
-# weasyprint is optional (PDF report generation) and notoriously hard to
-# install on Windows due to GTK system dependencies. Install separately
-# only if you need PDF reports — HTML reports work without it.
-# weasyprint>=62.3
+# ── Web Scraping ──────────────────────────────────────────────────────────────
+beautifulsoup4==4.12.3
+lxml==5.2.2
+requests==2.32.3
+
+# ── AI Providers — install ONLY the one you use ───────────────────────────────
+# Anthropic (Claude)
+anthropic==0.27.0
+
+# OpenAI (GPT-4o etc.) — uncomment if using OpenAI
+# openai==1.30.0
+
+# Google Gemini — uncomment if using Gemini
+# google-generativeai==0.7.0
+
+# Groq (free tier) — uncomment if using Groq
+# groq==0.9.0
+
+# Ollama — no pip package needed, just install from https://ollama.com
+
+# ── Reporting ─────────────────────────────────────────────────────────────────
+Pillow==10.3.0
+jinja2==3.1.4
+weasyprint==62.3
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+rich==13.7.1
+loguru==0.7.2
+pydantic==2.7.3
+aiohttp==3.9.5
+tqdm==4.66.4
