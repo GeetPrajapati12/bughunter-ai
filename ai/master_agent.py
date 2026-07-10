@@ -42,6 +42,7 @@ from executor.selenium_runner import SeleniumRunner, TestResult
 from executor.playwright_runner import PlaywrightRunner
 from modules.login           import LoginModule
 from modules.accessibility   import AccessibilityChecker
+from modules.security        import SecurityScanner
 from reporter.html_report    import HTMLReporter
 from reporter.pdf_report     import PDFReporter
 from reporter.screenshots    import ScreenshotManager
@@ -59,6 +60,7 @@ class SessionConfig:
     login_url:       str = ""
     run_accessibility: bool = True
     run_responsiveness: bool = False   # slow; opt-in
+    run_security:      bool = True     # security checks (headers, cookies, CSRF, injection signals)
 
 
 @dataclass
@@ -95,6 +97,7 @@ class MasterAgent:
         self._bug_ai         = BugExplainerAgent()
         self._report_ai      = ReportWriterAgent()
         self._a11y_checker   = AccessibilityChecker()
+        self._security_scanner = SecurityScanner()
 
     # ── Entry point ────────────────────────────────────────────────────────────
 
@@ -133,6 +136,17 @@ class MasterAgent:
         sitemap = crawler.crawl()
         console.print(f"  Discovered [green]{len(sitemap)}[/] pages")
 
+        # ── Step 2b: Site-wide security exposure scan (once per domain) ──────
+        all_security_findings: list[dict] = []
+        if config.run_security:
+            console.print("[bold]Step 2b:[/] Running site-wide security exposure scan …")
+            try:
+                site_findings = self._security_scanner.scan_site_exposure(config.target_url)
+                all_security_findings += [self._finding_to_dict(f, config.target_url) for f in site_findings]
+                console.print(f"  Found [yellow]{len(site_findings)}[/] site-wide security findings")
+            except Exception as exc:
+                logger.warning("Site-wide security scan failed: {}", exc)
+
         # ── Step 3: Build runner ──────────────────────────────────────────────
         runner: SeleniumRunner = (
             PlaywrightRunner(driver)
@@ -157,7 +171,7 @@ class MasterAgent:
             for page in sitemap.pages():
                 summary = self._process_page(
                     page, driver, runner, screenshot_mgr,
-                    config, all_bugs,
+                    config, all_bugs, all_security_findings,
                 )
                 page_summaries.append(summary)
                 progress.advance(task)
@@ -184,19 +198,21 @@ class MasterAgent:
         # ── Step 6: Render reports ────────────────────────────────────────────
         duration = f"{time.time() - start:.1f}s"
         deduped_bugs = self._deduplicate_bugs(all_bugs)
+        deduped_security = self._deduplicate_security_findings(all_security_findings)
         report_session = {
-            "target_url":       config.target_url,
-            "engine":           BROWSER_ENGINE,
-            "duration":         duration,
-            "pages":            page_summaries,
-            "bugs":             deduped_bugs,
-            "executive_report": exec_report,
+            "target_url":        config.target_url,
+            "engine":            BROWSER_ENGINE,
+            "duration":          duration,
+            "pages":             page_summaries,
+            "bugs":              deduped_bugs,
+            "security_findings": deduped_security,
+            "executive_report":  exec_report,
         }
 
         report_paths = self._write_reports(report_session)
 
         # ── Print summary ─────────────────────────────────────────────────────
-        self._print_summary(total, passed, failed, skipped, exec_report, report_paths)
+        self._print_summary(total, passed, failed, skipped, exec_report, report_paths, len(deduped_security))
 
         return SessionResult(
             target_url=config.target_url,
@@ -220,6 +236,7 @@ class MasterAgent:
         screenshot_mgr: ScreenshotManager,
         config:        SessionConfig,
         all_bugs:      list[dict],
+        all_security_findings: list[dict],
     ) -> dict:
         logger.info("Processing page: {}", page.url)
 
@@ -247,6 +264,15 @@ class MasterAgent:
         a11y_issues = []
         if config.run_accessibility:
             a11y_issues = self._a11y_checker.check(page.html)
+
+        # Security
+        security_findings = []
+        if config.run_security:
+            try:
+                security_findings = self._security_scanner.scan(page.url, page.html)
+                all_security_findings += [self._finding_to_dict(f, page.url) for f in security_findings]
+            except Exception as exc:
+                logger.warning("Security scan failed for {}: {}", page.url, exc)
 
         # Generate test cases
         test_cases   = self._tc_gen.generate(analysis)
@@ -296,6 +322,7 @@ class MasterAgent:
             "passed":    pg_passed,
             "failed":    pg_failed,
             "skipped":   pg_skipped,
+            "security_findings_count": len(security_findings),
             "a11y_issues": [
                 {"rule": i.rule, "severity": i.severity, "description": i.description}
                 for i in a11y_issues
@@ -303,6 +330,47 @@ class MasterAgent:
         }
 
     # ── Reporting ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _finding_to_dict(finding: Any, page_url: str) -> dict:
+        return {
+            "category":       finding.category,
+            "severity":       finding.severity,
+            "title":          finding.title,
+            "description":    finding.description,
+            "evidence":       finding.evidence,
+            "recommendation": finding.recommendation,
+            "page_url":       page_url,
+        }
+
+    @staticmethod
+    def _deduplicate_security_findings(findings: list[dict]) -> list[dict]:
+        """
+        Group identical security findings (same title) found on multiple
+        pages into a single entry listing affected page count, instead of
+        repeating the same header/cookie/CSRF finding once per page.
+        """
+        grouped: dict[str, dict] = {}
+
+        for f in findings:
+            key = f.get("title", "")
+            if key not in grouped:
+                grouped[key] = dict(f)
+                grouped[key]["page_urls"] = []
+            grouped[key]["page_urls"].append(f.get("page_url", ""))
+
+        deduped = []
+        for entry in grouped.values():
+            count  = len(entry["page_urls"])
+            sample = entry["page_urls"][:3]
+            suffix = f" (+{count - 3} more)" if count > 3 else ""
+            entry["affected_pages"] = f"{count} page{'s' if count != 1 else ''}: {', '.join(sample)}{suffix}"
+            deduped.append(entry)
+
+        # Sort by severity: critical > high > medium > low > info
+        order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        deduped.sort(key=lambda x: order.get(x.get("severity", "info"), 5))
+        return deduped
 
     @staticmethod
     def _deduplicate_bugs(bugs: list[dict]) -> list[dict]:
@@ -373,6 +441,7 @@ class MasterAgent:
     def _print_summary(
         total: int, passed: int, failed: int, skipped: int,
         exec_report: dict, report_paths: list[Path],
+        security_count: int = 0,
     ) -> None:
         console.print()
         console.rule("[bold green]Session Complete[/]")
@@ -380,6 +449,7 @@ class MasterAgent:
         console.print(f"  [green]Passed[/]  : {passed}")
         console.print(f"  [red]Failed[/]  : {failed}")
         console.print(f"  [yellow]Skipped[/] : {skipped}")
+        console.print(f"  [magenta]Security[/] : {security_count} findings")
         console.print(f"  Score   : [bold yellow]{exec_report.get('quality_score', '?')}[/] / 100")
         console.print(f"  Deploy  : [bold]{exec_report.get('deployment_recommendation', '?')}[/]")
         console.print()

@@ -99,6 +99,7 @@ _TEMPLATE = """<!DOCTYPE html>
     <div class="score-card fail">   <div class="value">{{ failed }}</div>        <div class="label">Failed</div></div>
     <div class="score-card">        <div class="value" style="color:var(--skip)">{{ skipped }}</div><div class="label">Skipped</div></div>
     <div class="score-card">        <div class="value" style="color:var(--muted)">{{ pages_crawled }}</div><div class="label">Pages</div></div>
+    <div class="score-card">        <div class="value" style="color:#f472b6">{{ security_findings|length }}</div><div class="label">Security Findings</div></div>
     <div class="score-card score-val"><div class="value">{{ quality_score }}</div><div class="label">Quality Score</div></div>
   </div>
 
@@ -146,6 +147,36 @@ _TEMPLATE = """<!DOCTYPE html>
       </tbody>
     </table>
     </div>
+  </section>
+  {% endif %}
+
+  <!-- Security Findings -->
+  {% if security_findings %}
+  <section>
+    <h2>🔒 Security Findings ({{ security_findings|length }})</h2>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+    <table>
+      <thead><tr><th>#</th><th>Severity</th><th>Category</th><th>Finding</th><th>Description</th><th>Recommendation</th><th>Affected</th></tr></thead>
+      <tbody>
+      {% for finding in security_findings %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td><span class="badge {{ finding.severity }}">{{ finding.severity }}</span></td>
+        <td>{{ finding.category }}</td>
+        <td>{{ finding.title }}</td>
+        <td>{{ finding.description }}</td>
+        <td>{{ finding.recommendation }}</td>
+        <td style="font-size:11px;color:var(--muted);">{{ finding.affected_pages }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:10px;color:var(--muted);font-size:12px;">
+      ⚠️ These are automated signals intended to guide manual investigation by a security
+      professional — they are not confirmed exploits. Only test websites you own or have
+      explicit written authorization to assess.
+    </p>
   </section>
   {% endif %}
 
@@ -241,6 +272,7 @@ class HTMLReporter:
             "executive_summary":        exec_report.get("executive_summary", ""),
             "recommendations":          exec_report.get("recommendations", []),
             "bugs":                     session.get("bugs", []),
+            "security_findings":        session.get("security_findings", []),
             "pages":                    session.get("pages", []),
         }
 

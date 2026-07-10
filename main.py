@@ -117,6 +117,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip accessibility checks",
     )
+    parser.add_argument(
+        "--no-security",
+        action="store_true",
+        help="Skip security checks (headers, cookies, CSRF, injection signals, exposed files)",
+    )
     return parser.parse_args()
 
 
@@ -152,6 +157,7 @@ def main() -> int:
         password=args.password,
         login_url=args.login_url,
         run_accessibility=not args.no_accessibility,
+        run_security=not args.no_security,
     )
 
     try:
