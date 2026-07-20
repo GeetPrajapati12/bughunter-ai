@@ -6,19 +6,10 @@ BugHunter AI — Universal AI-Powered Web Testing Agent
 
 Usage
 -----
-    # Basic usage
     python main.py --url https://example.com
-
-    # With authentication
     python main.py --url https://app.example.com --username admin --password secret
-
-    # Choose report format
-    python main.py --url https://example.com --report both
-
-    # Use Playwright instead of Selenium
     python main.py --url https://example.com --engine playwright
-
-    # Limit crawl depth and pages
+    python main.py --url https://example.com --report both
     python main.py --url https://example.com --max-pages 10 --max-depth 2
 """
 
@@ -27,12 +18,72 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from pathlib import Path
 
+# ── Step 1: Parse CLI args FIRST, before any other imports ────────────────────
+# This is critical — config/settings.py is imported by almost every module.
+# If we import MasterAgent before applying CLI overrides, the engine/headless
+# settings are already baked in and --engine playwright has no effect.
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="bughunter-ai",
+        description="🐛 BugHunter AI — Universal AI-Powered Web Testing Agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("--url", "-u", required=True,
+                        help="Target website URL (e.g. https://example.com)")
+    parser.add_argument("--username", default="", help="Login username (optional)")
+    parser.add_argument("--password", default="", help="Login password (optional)")
+    parser.add_argument("--login-url", default="",
+                        help="Login page URL if different from --url")
+    parser.add_argument("--engine", choices=["selenium", "playwright"], default=None,
+                        help="Browser engine (default: from .env / settings)")
+    parser.add_argument("--report", choices=["html", "pdf", "both"], default=None,
+                        help="Report format (default: html)")
+    parser.add_argument("--max-pages", type=int, default=None,
+                        help="Maximum pages to crawl")
+    parser.add_argument("--max-depth", type=int, default=None,
+                        help="Maximum crawl depth")
+    parser.add_argument("--headless", action=argparse.BooleanOptionalAction, default=None,
+                        help="Run browser in headless mode (default: true)")
+    parser.add_argument("--no-accessibility", action="store_true",
+                        help="Skip accessibility checks")
+    parser.add_argument("--no-security", action="store_true",
+                        help="Skip security checks")
+    return parser.parse_args()
+
+
+def apply_cli_overrides(args: argparse.Namespace) -> None:
+    """
+    Write CLI flags into os.environ BEFORE importing any project modules.
+    config/settings.py reads from os.environ via python-dotenv, so setting
+    env vars here ensures every subsequent import sees the correct values.
+    """
+    if args.engine:
+        os.environ["BROWSER_ENGINE"] = args.engine
+
+    if args.report:
+        os.environ["REPORT_FORMAT"] = args.report
+
+    if args.max_pages is not None:
+        os.environ["MAX_PAGES"] = str(args.max_pages)
+
+    if args.max_depth is not None:
+        os.environ["MAX_DEPTH"] = str(args.max_depth)
+
+    if args.headless is not None:
+        os.environ["BROWSER_HEADLESS"] = "true" if args.headless else "false"
+
+
+# ── Step 2: Parse + apply overrides BEFORE any project imports ────────────────
+args = parse_args()
+apply_cli_overrides(args)
+
+# ── Step 3: NOW import project modules (they will see the correct env vars) ───
 from loguru import logger
 from rich.console import Console
 
-# ── Configure logging before any module imports ────────────────────────────────
 from config.settings import LOG_FILE, LOG_LEVEL
 
 logger.remove()
@@ -55,102 +106,7 @@ from ai.master_agent import MasterAgent, SessionConfig  # noqa: E402
 console = Console()
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="bughunter-ai",
-        description="🐛 BugHunter AI — Universal AI-Powered Web Testing Agent",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
-    )
-    parser.add_argument(
-        "--url", "-u",
-        required=True,
-        help="Target website URL (e.g. https://example.com)",
-    )
-    parser.add_argument(
-        "--username",
-        default="",
-        help="Login username (optional)",
-    )
-    parser.add_argument(
-        "--password",
-        default="",
-        help="Login password (optional)",
-    )
-    parser.add_argument(
-        "--login-url",
-        default="",
-        help="Login page URL if different from --url",
-    )
-    parser.add_argument(
-        "--engine",
-        choices=["selenium", "playwright"],
-        default=None,
-        help="Browser engine (default: from .env / settings)",
-    )
-    parser.add_argument(
-        "--report",
-        choices=["html", "pdf", "both"],
-        default=None,
-        help="Report format (default: html)",
-    )
-    parser.add_argument(
-        "--max-pages",
-        type=int,
-        default=None,
-        help="Maximum pages to crawl",
-    )
-    parser.add_argument(
-        "--max-depth",
-        type=int,
-        default=None,
-        help="Maximum crawl depth",
-    )
-    parser.add_argument(
-        "--headless",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Run browser in headless mode (default: true)",
-    )
-    parser.add_argument(
-        "--no-accessibility",
-        action="store_true",
-        help="Skip accessibility checks",
-    )
-    parser.add_argument(
-        "--no-security",
-        action="store_true",
-        help="Skip security checks (headers, cookies, CSRF, injection signals, exposed files)",
-    )
-    return parser.parse_args()
-
-
-def apply_cli_overrides(args: argparse.Namespace) -> None:
-    """Override settings from CLI flags."""
-    import config.settings as s
-
-    if args.engine:
-        s.BROWSER_ENGINE = args.engine
-        os.environ["BROWSER_ENGINE"] = args.engine
-
-    if args.report:
-        s.REPORT_FORMAT = args.report
-        os.environ["REPORT_FORMAT"] = args.report
-
-    if args.max_pages is not None:
-        s.MAX_PAGES = args.max_pages
-
-    if args.max_depth is not None:
-        s.MAX_DEPTH = args.max_depth
-
-    if args.headless is not None:
-        s.BROWSER_HEADLESS = args.headless
-
-
 def main() -> int:
-    args = parse_args()
-    apply_cli_overrides(args)
-
     config = SessionConfig(
         target_url=args.url,
         username=args.username,

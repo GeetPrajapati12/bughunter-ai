@@ -1,43 +1,43 @@
 """
 config/browser.py
 -----------------
-Browser factory.  Returns a configured Selenium WebDriver (or a
-Playwright Browser object) based on the active BROWSER_ENGINE setting.
+Browser factory.
+Returns a configured Selenium WebDriver or Playwright Page based on
+the BROWSER_ENGINE environment variable.
 
-The rest of the codebase imports `get_driver()` and never touches
-WebDriver or Playwright APIs directly — this keeps the runner swappable.
+IMPORTANT: get_driver() reads BROWSER_ENGINE fresh from os.environ
+at call time (not at import time) so that CLI --engine overrides
+applied before import are correctly picked up.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from loguru import logger
 
-from config.settings import (
-    BROWSER_ENGINE,
-    BROWSER_HEADLESS,
-    BROWSER_WINDOW_WIDTH,
-    BROWSER_WINDOW_HEIGHT,
-    PAGE_LOAD_TIMEOUT,
-    IMPLICIT_WAIT,
-)
-
 
 def get_driver() -> Any:
     """
-    Return a ready-to-use browser driver/page object.
+    Return a ready-to-use browser driver.
 
-    Returns a ``selenium.webdriver.Chrome`` instance when BROWSER_ENGINE
-    is ``"selenium"`` and a ``playwright.sync_api.Page`` when it is
-    ``"playwright"``.
+    Reads BROWSER_ENGINE from os.environ at call time so that
+    CLI overrides (--engine playwright) are always respected,
+    regardless of import order.
     """
-    engine = BROWSER_ENGINE.lower()
+    # Read fresh from env, not from the cached settings module value
+    engine = os.environ.get("BROWSER_ENGINE", "selenium").lower().strip()
+
+    logger.info("Browser engine requested: {}", engine)
+
     if engine == "selenium":
         return _build_selenium_driver()
     if engine == "playwright":
         return _build_playwright_page()
-    raise ValueError(f"Unknown BROWSER_ENGINE: {engine!r}. Use 'selenium' or 'playwright'.")
+    raise ValueError(
+        f"Unknown BROWSER_ENGINE: {engine!r}. Use 'selenium' or 'playwright'."
+    )
 
 
 # ── Selenium ──────────────────────────────────────────────────────────────────
@@ -46,31 +46,33 @@ def _build_selenium_driver() -> Any:
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service
     except ImportError as exc:
-        raise ImportError("selenium is not installed. Run: pip install selenium") from exc
+        raise ImportError("Run: pip install selenium") from exc
+
+    headless = os.environ.get("BROWSER_HEADLESS", "true").lower() == "true"
+    width    = int(os.environ.get("BROWSER_WINDOW_WIDTH",  "1366"))
+    height   = int(os.environ.get("BROWSER_WINDOW_HEIGHT", "768"))
+    timeout  = int(os.environ.get("PAGE_LOAD_TIMEOUT",     "30"))
+    wait     = int(os.environ.get("IMPLICIT_WAIT",         "5"))
 
     options = Options()
-    if BROWSER_HEADLESS:
+    if headless:
         options.add_argument("--headless=new")
-
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-popup-blocking")
-    options.add_argument(f"--window-size={BROWSER_WINDOW_WIDTH},{BROWSER_WINDOW_HEIGHT}")
+    options.add_argument(f"--window-size={width},{height}")
     options.add_argument("--log-level=3")
-
-    # Suppress driver logging noise
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
 
     driver = webdriver.Chrome(options=options)
-    driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
-    driver.implicitly_wait(IMPLICIT_WAIT)
-    driver.set_window_size(BROWSER_WINDOW_WIDTH, BROWSER_WINDOW_HEIGHT)
+    driver.set_page_load_timeout(timeout)
+    driver.implicitly_wait(wait)
+    driver.set_window_size(width, height)
 
-    logger.info("Selenium Chrome driver initialised (headless={})", BROWSER_HEADLESS)
+    logger.info("Selenium Chrome driver initialised (headless={})", headless)
     return driver
 
 
@@ -81,16 +83,21 @@ def _build_playwright_page() -> Any:
         from playwright.sync_api import sync_playwright  # type: ignore
     except ImportError as exc:
         raise ImportError(
-            "playwright is not installed. Run: pip install playwright && playwright install"
+            "Run: pip install playwright && playwright install chromium"
         ) from exc
 
-    pw = sync_playwright().start()
-    browser = pw.chromium.launch(headless=BROWSER_HEADLESS)
+    headless = os.environ.get("BROWSER_HEADLESS", "true").lower() == "true"
+    width    = int(os.environ.get("BROWSER_WINDOW_WIDTH",  "1366"))
+    height   = int(os.environ.get("BROWSER_WINDOW_HEIGHT", "768"))
+    timeout  = int(os.environ.get("PAGE_LOAD_TIMEOUT",     "30"))
+
+    pw      = sync_playwright().start()
+    browser = pw.chromium.launch(headless=headless)
     context = browser.new_context(
-        viewport={"width": BROWSER_WINDOW_WIDTH, "height": BROWSER_WINDOW_HEIGHT}
+        viewport={"width": width, "height": height}
     )
     page = context.new_page()
-    page.set_default_timeout(PAGE_LOAD_TIMEOUT * 1000)
+    page.set_default_timeout(timeout * 1000)
 
-    logger.info("Playwright Chromium browser initialised (headless={})", BROWSER_HEADLESS)
+    logger.info("Playwright Chromium initialised (headless={})", headless)
     return page
