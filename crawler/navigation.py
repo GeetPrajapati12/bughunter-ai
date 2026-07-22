@@ -12,8 +12,6 @@ from typing import Any
 
 from loguru import logger
 
-from config.settings import ELEMENT_TIMEOUT
-
 
 class Navigator:
     """
@@ -23,8 +21,8 @@ class Navigator:
     """
 
     def __init__(self, driver: Any) -> None:
-        self.driver   = driver
-        self._is_selenium = "selenium" in type(driver).__module__
+        self.driver        = driver
+        self._is_selenium  = "selenium" in type(driver).__module__
 
     # ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -55,12 +53,12 @@ class Navigator:
                 from selenium.webdriver.common.by import By
                 from selenium.webdriver.support.ui import WebDriverWait
                 from selenium.webdriver.support import expected_conditions as EC
-                el = WebDriverWait(self.driver, ELEMENT_TIMEOUT).until(
+                el = WebDriverWait(self.driver, 10).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
                 )
                 el.click()
             else:
-                self.driver.click(selector, timeout=ELEMENT_TIMEOUT * 1000)
+                self.driver.click(selector, timeout=10000)
             return True
         except Exception as exc:
             logger.debug("click({}) failed: {}", selector, exc)
@@ -73,7 +71,7 @@ class Navigator:
                 from selenium.webdriver.common.by import By
                 from selenium.webdriver.support.ui import WebDriverWait
                 from selenium.webdriver.support import expected_conditions as EC
-                el = WebDriverWait(self.driver, ELEMENT_TIMEOUT).until(
+                el = WebDriverWait(self.driver, 10).until(
                     EC.visibility_of_element_located((By.CSS_SELECTOR, selector))
                 )
                 if clear_first:

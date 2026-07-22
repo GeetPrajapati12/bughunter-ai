@@ -216,7 +216,7 @@ _TEMPLATE = """<!DOCTYPE html>
 
 </div>
 
-<footer>BugHunter AI &bull; {{ generated_at }} &bull; Powered by Claude AI</footer>
+<footer>BugHunter AI &bull; {{ generated_at }} &bull; Powered by Geet Prajapati</footer>
 </body>
 </html>
 """
