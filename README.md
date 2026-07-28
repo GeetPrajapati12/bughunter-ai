@@ -28,25 +28,86 @@
 - 🤖 **Generic Test Execution** — Selenium or Playwright runner, zero hardcoded selectors
 - 🐛 **AI Bug Analysis** — explains failures with root cause, severity, and suggested fix
 - ♿ **Accessibility Checks** — WCAG 2.1 violations (missing alt, labels, heading order, etc.)
+- 🔒 **Security Checks** — headers, cookies, CSRF, SSL, exposed files, injection signals
 - 📊 **Professional Reports** — self-contained HTML report + optional PDF with screenshots
 - 🔐 **Auto Login** — AI detects and fills login forms on any site
-- 📱 **Responsive Testing** — checks layout across 6 common viewport sizes
-- 🌐 **Universal AI Support** — works with Anthropic, OpenAI, Gemini, Groq, or Ollama
+- 🌐 **Universal AI Support** — Anthropic, OpenAI, Gemini, Groq, or Ollama
+- ⚡ **Two Test Modes** — Basic (no AI tokens) or AI (full analysis)
+
+---
+
+## ⚡ Two Test Modes
+
+BugHunter AI gives you full control over when AI is used.
+You don't need an API key to run basic tests.
+
+### 🔵 Basic Mode — Zero AI tokens used
+
+```bash
+python main.py --url https://example.com --mode basic
+```
+
+Runs everything that doesn't require AI:
+- Crawls all pages
+- Detects UI components (buttons, forms, tables, dropdowns, etc.)
+- Runs 3 generic tests per page (page load, links, title)
+- Checks accessibility (WCAG 2.1)
+- Checks security (headers, cookies, CSRF, SSL, exposed files)
+- Generates HTML/PDF report
+
+✅ No API key needed. Fast. Free. Great for daily checks.
+
+---
+
+### 🟣 AI Mode — Full AI-powered analysis
+
+```bash
+python main.py --url https://example.com --mode ai
+```
+
+Everything in Basic Mode, plus:
+- AI understands the purpose of every page
+- AI generates exhaustive test cases (functional, security, accessibility, negative)
+- AI explains every bug with root cause, severity, and fix suggestion
+- AI writes a professional executive summary with deployment recommendation
+
+⚠️ Requires an API key from your chosen AI provider. Uses API tokens per page.
+
+---
+
+### Mode Comparison
+
+| Feature | Basic Mode | AI Mode |
+|---|---|---|
+| Crawler | ✅ | ✅ |
+| UI Detection | ✅ | ✅ |
+| Generic Tests (3/page) | ✅ | ✅ |
+| Accessibility Checks | ✅ | ✅ |
+| Security Checks | ✅ | ✅ |
+| HTML / PDF Report | ✅ | ✅ |
+| AI Page Understanding | ❌ | ✅ |
+| AI Test Case Generation | ❌ | ✅ |
+| AI Bug Explanation | ❌ | ✅ |
+| AI Executive Summary | ❌ | ✅ |
+| API Key Required | ❌ No | ✅ Yes |
+| API Tokens Used | **0** | Yes |
 
 ---
 
 ## 🤖 Supported AI Providers
 
-BugHunter AI works with **any** of these providers.
-You only need **one** — use whichever you already have access to.
+Only needed for `--mode ai`. You only need **one**.
 
 | Provider | Models | Free Tier | Get Key |
 |---|---|---|---|
 | **Anthropic** | Claude Sonnet, Opus, Haiku | ❌ Paid | [console.anthropic.com](https://console.anthropic.com) |
-| **OpenAI** | GPT-4o, GPT-4 Turbo, GPT-3.5 | ❌ Paid | [platform.openai.com](https://platform.openai.com/api-keys) |
+| **OpenAI** | GPT-4o, GPT-4 Turbo | ❌ Paid | [platform.openai.com](https://platform.openai.com/api-keys) |
 | **Google Gemini** | Gemini 1.5 Pro, Flash | ✅ Free tier | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
-| **Groq** | Llama 3, Mixtral, Gemma | ✅ Free tier | [console.groq.com](https://console.groq.com) |
+| **Groq** | openai/gpt-oss-120b, etc. | ✅ Free tier | [console.groq.com](https://console.groq.com) |
 | **Ollama** | Any local model (Llama3, Mistral…) | ✅ Completely free | [ollama.com](https://ollama.com) |
+
+> **Note:** Always check your provider's docs for the latest supported model names,
+> as models are occasionally deprecated and replaced.
 
 ---
 
@@ -77,56 +138,114 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Then install **only** the package for your chosen AI provider:
+Then install **only** the package for your chosen AI provider (only needed for `--mode ai`):
 
 ```bash
-# If using Anthropic (already in requirements.txt)
+# Anthropic (already in requirements.txt)
 pip install anthropic
 
-# If using OpenAI
+# OpenAI
 pip install openai
 
-# If using Google Gemini
+# Google Gemini
 pip install google-generativeai
 
-# If using Groq
+# Groq
 pip install groq
 
-# If using Ollama — no pip needed
-# Download from https://ollama.com, then run:
-# ollama pull llama3
+# Ollama — no pip needed, download from https://ollama.com
 ```
 
-### 4. Configure your API key
+### 4. Configure
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and set your provider and key:
+For **Basic Mode**, no API key is needed — just run.
+
+For **AI Mode**, open `.env` and set your provider and key:
 
 ```bash
-# Choose your provider
-AI_PROVIDER=anthropic       # or: openai | gemini | groq | ollama
-
-# Set the model for your provider
-AI_MODEL=claude-sonnet-4-6
-
-# Add your key (only the one that matches AI_PROVIDER)
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxx
+AI_PROVIDER=groq
+AI_MODEL=openai/gpt-oss-120b
+GROQ_API_KEY=gsk_your_key_here
 ```
 
 ### 5. Run
 
 ```bash
-python main.py --url https://example.com
+# Basic mode (no API key needed)
+python main.py --url https://example.com --mode basic
+
+# AI mode (requires API key)
+python main.py --url https://example.com --mode ai
 ```
 
 The report is saved to the `reports/` folder.
 
 ---
 
-## ⚙️ Provider Setup Examples
+## 📖 Full Usage
+
+```bash
+python main.py --url <URL> [options]
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--url` | required | Target website URL |
+| `--mode` | `basic` | `basic` (no AI) or `ai` (full AI analysis) |
+| `--username` | — | Login username (optional) |
+| `--password` | — | Login password (optional) |
+| `--login-url` | — | Login page if different from `--url` |
+| `--engine` | `selenium` | `selenium` or `playwright` |
+| `--report` | `html` | `html`, `pdf`, or `both` |
+| `--max-pages` | `50` | Maximum pages to crawl |
+| `--max-depth` | `3` | Maximum crawl depth |
+| `--headless` / `--no-headless` | headless | Show/hide browser window |
+| `--no-accessibility` | — | Skip WCAG checks |
+| `--no-security` | — | Skip security checks |
+
+### Examples
+
+```bash
+# Basic test — no API key needed
+python main.py --url https://example.com
+
+# Basic test with login
+python main.py --url https://app.example.com \
+               --username admin@example.com \
+               --password yourpassword \
+               --mode basic
+
+# Full AI test with login and PDF report
+python main.py --url https://app.example.com \
+               --username admin@example.com \
+               --password yourpassword \
+               --mode ai \
+               --report both
+
+# Fast smoke test — 5 pages, no AI
+python main.py --url https://example.com \
+               --max-pages 5 --max-depth 1 \
+               --mode basic
+
+# Deep full-site AI test
+python main.py --url https://example.com \
+               --max-pages 200 --max-depth 6 \
+               --mode ai \
+               --report both
+
+# Use Playwright instead of Selenium
+python main.py --url https://example.com \
+               --engine playwright \
+               --mode basic
+```
+
+---
+
+## ⚙️ Provider Setup Examples (AI Mode only)
 
 ### Anthropic (Claude)
 ```bash
@@ -152,7 +271,7 @@ GEMINI_API_KEY=AIza-your-key-here
 ### Groq (Free)
 ```bash
 AI_PROVIDER=groq
-AI_MODEL=llama3-70b-8192
+AI_MODEL=openai/gpt-oss-120b
 GROQ_API_KEY=gsk_your-key-here
 ```
 
@@ -167,51 +286,6 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 ---
 
-## 📖 Usage
-
-```bash
-python main.py --url <URL> [options]
-```
-
-| Option | Default | Description |
-|---|---|---|
-| `--url` | required | Target website URL |
-| `--username` | — | Login username (optional) |
-| `--password` | — | Login password (optional) |
-| `--login-url` | — | Login page if different from `--url` |
-| `--engine` | `selenium` | `selenium` or `playwright` |
-| `--report` | `html` | `html`, `pdf`, or `both` |
-| `--max-pages` | `50` | Maximum pages to crawl |
-| `--max-depth` | `3` | Maximum crawl depth |
-| `--headless` / `--no-headless` | headless | Show/hide browser window |
-| `--no-accessibility` | — | Skip WCAG checks |
-
-### Examples
-
-```bash
-# Basic test
-python main.py --url https://example.com
-
-# With login
-python main.py --url https://app.example.com \
-               --username admin@example.com \
-               --password yourpassword
-
-# Full site, both report formats
-python main.py --url https://example.com \
-               --max-pages 200 --max-depth 6 \
-               --report both
-
-# Fast smoke test (5 pages only)
-python main.py --url https://example.com \
-               --max-pages 5 --max-depth 1
-
-# Use Playwright instead of Selenium
-python main.py --url https://example.com --engine playwright
-```
-
----
-
 ## 🏗️ Architecture
 
 ```
@@ -222,13 +296,19 @@ Master Agent
   │
   ├── Crawler                discovers all pages (BFS)
   ├── UI Detection Engine    finds buttons, forms, tables, dropdowns, etc.
-  ├── LLM Client             universal AI layer (Anthropic/OpenAI/Gemini/Groq/Ollama)
-  │     ├── Page Understanding    AI interprets each page
-  │     ├── Test Case Generator   AI writes exhaustive test cases
-  │     ├── Bug Explainer         AI analyses every failure
-  │     └── Report Writer         AI writes executive summary
-  ├── Selenium / Playwright Runner   executes tests generically
-  └── HTML / PDF Reporter    renders the final report
+  ├── Accessibility Checker  WCAG 2.1 checks (always runs)
+  ├── Security Scanner       headers, CSRF, SSL, exposure (always runs)
+  │
+  ├── [Basic Mode only]
+  │     └── Generic Test Runner   3 tests per page, no AI
+  │
+  └── [AI Mode only]
+        ├── LLM Client        universal AI layer (any provider)
+        ├── Page Understanding AI interprets each page
+        ├── Test Case Generator AI writes exhaustive test cases
+        ├── Bug Explainer       AI analyses every failure
+        ├── Report Writer       AI writes executive summary
+        └── Selenium / Playwright Runner  executes AI-generated tests
 ```
 
 ---
@@ -261,8 +341,8 @@ bughunter-ai/
 │   └── calendar.py
 │
 ├── ai/                    AI agents
-│   ├── llm_client.py      ← universal AI provider client
-│   ├── master_agent.py    master orchestrator
+│   ├── llm_client.py      universal AI provider client
+│   ├── master_agent.py    master orchestrator (basic + ai mode)
 │   ├── page_understanding.py
 │   ├── testcase_generator.py
 │   ├── bug_explainer.py
@@ -275,6 +355,7 @@ bughunter-ai/
 ├── modules/
 │   ├── login.py           AI-powered login handler
 │   ├── accessibility.py   WCAG 2.1 checks
+│   ├── security.py        security testing module
 │   └── responsiveness.py  multi-viewport checks
 │
 ├── reporter/
@@ -302,9 +383,9 @@ bughunter-ai/
 Copy `.env.example` to `.env` and edit:
 
 ```bash
-# ── AI Provider (choose one) ──────────────────────────────────────────────────
-AI_PROVIDER=anthropic          # anthropic | openai | gemini | groq | ollama
-AI_MODEL=claude-sonnet-4-6
+# ── AI Provider (only needed for --mode ai) ───────────────────────────────────
+AI_PROVIDER=groq                  # anthropic | openai | gemini | groq | ollama
+AI_MODEL=openai/gpt-oss-120b
 AI_MAX_TOKENS=4096
 AI_TEMPERATURE=0.2
 
@@ -316,7 +397,7 @@ GROQ_API_KEY=
 OLLAMA_BASE_URL=http://localhost:11434
 
 # ── Browser ───────────────────────────────────────────────────────────────────
-BROWSER_ENGINE=selenium        # selenium | playwright
+BROWSER_ENGINE=selenium           # selenium | playwright
 BROWSER_HEADLESS=true
 PAGE_LOAD_TIMEOUT=30
 
@@ -326,7 +407,7 @@ MAX_DEPTH=3
 CRAWL_DELAY_SECONDS=1.0
 
 # ── Reporting ─────────────────────────────────────────────────────────────────
-REPORT_FORMAT=html             # html | pdf | both
+REPORT_FORMAT=html                # html | pdf | both
 SCREENSHOT_ON_FAIL=true
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -354,8 +435,10 @@ pytest tests/ -v
 | 2 | ✅ Done | AI page understanding, AI test generation, failure analysis |
 | 3 | ✅ Done | Multi-agent orchestration, accessibility, PDF reports, login |
 | 4 | ✅ Done | Universal AI provider support (Anthropic, OpenAI, Gemini, Groq, Ollama) |
-| 5 | 🔜 Planned | API testing (Swagger/OpenAPI), visual regression, CI/CD |
-| 6 | 🔜 Planned | Self-healing locators, parallel execution, trend dashboards |
+| 5 | ✅ Done | Security testing module (headers, CSRF, SSL, injection signals) |
+| 6 | ✅ Done | Basic vs AI mode — run without API tokens |
+| 7 | 🔜 Planned | API testing (Swagger/OpenAPI), visual regression, CI/CD |
+| 8 | 🔜 Planned | Self-healing locators, parallel execution, trend dashboards |
 
 ---
 
