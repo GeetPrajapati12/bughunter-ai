@@ -6,20 +6,20 @@ BugHunter AI — Universal AI-Powered Web Testing Agent
 
 Usage
 -----
-    # AI mode (full AI-powered analysis — requires API key)
+    # Basic mode (no AI tokens)
+    python main.py --url https://example.com --mode basic
+
+    # AI mode (full analysis, requires API key)
     python main.py --url https://example.com --mode ai
 
-    # Basic mode (no AI, no API key needed, fast)
-    python main.py --url https://example.com --mode basic
+    # Enable visual regression testing
+    python main.py --url https://example.com --visual
+
+    # After intentional UI changes — approve new baselines
+    python main.py --url https://example.com --visual --approve-baselines
 
     # With login
     python main.py --url https://app.example.com --username admin --password secret
-
-    # Choose report format
-    python main.py --url https://example.com --report both
-
-    # Use Playwright
-    python main.py --url https://example.com --engine playwright
 """
 
 from __future__ import annotations
@@ -50,9 +50,25 @@ def parse_args() -> argparse.Namespace:
         default="basic",
         help=(
             "Test mode:\n"
-            "  ai    — full AI analysis, test generation, bug explanation (requires API key)\n"
-            "  basic — crawler + UI detection + generic tests + accessibility + security, no AI tokens used\n"
+            "  ai    — full AI analysis (requires API key)\n"
+            "  basic — generic tests only, no AI tokens used\n"
             "Default: basic"
+        ),
+    )
+    parser.add_argument(
+        "--visual",
+        action="store_true",
+        help=(
+            "Enable visual regression testing. "
+            "First run saves baselines. Subsequent runs compare and highlight changes."
+        ),
+    )
+    parser.add_argument(
+        "--approve-baselines",
+        action="store_true",
+        help=(
+            "After intentional UI changes: replace stored baselines with current "
+            "screenshots so the next run uses the new design as reference."
         ),
     )
     parser.add_argument("--engine", choices=["selenium", "playwright"], default=None,
@@ -116,12 +132,17 @@ console = Console()
 def main() -> int:
     mode = args.mode
 
-    # Print mode info so user knows what's running
     console.print()
     if mode == "ai":
         console.print("  Mode    : [bold magenta]AI Mode[/] — full analysis, test generation, bug explanation")
     else:
-        console.print("  Mode    : [bold cyan]Basic Mode[/] — crawler, UI detection, accessibility, security (no AI tokens used)")
+        console.print("  Mode    : [bold cyan]Basic Mode[/] — crawler, UI detection, accessibility, security (no AI tokens)")
+
+    if args.visual:
+        if args.approve_baselines:
+            console.print("  Visual  : [bold yellow]Approve Baselines[/] — updating baselines with current screenshots")
+        else:
+            console.print("  Visual  : [bold green]Enabled[/] — comparing against stored baselines")
     console.print()
 
     config = SessionConfig(
@@ -132,6 +153,8 @@ def main() -> int:
         run_accessibility=not args.no_accessibility,
         run_security=not args.no_security,
         ai_mode=(mode == "ai"),
+        run_visual=args.visual,
+        approve_baselines=args.approve_baselines,
     )
 
     try:

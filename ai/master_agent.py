@@ -3,11 +3,13 @@ ai/master_agent.py
 ------------------
 Master Agent — controls the entire BugHunter AI workflow.
 
-Two modes:
-  ai    — full pipeline including AI page understanding, test case generation,
-           bug explanation, and executive report (uses API tokens)
+Modes:
   basic — crawler + UI detection + generic tests + accessibility + security
-           (zero AI calls, zero API tokens)
+  ai    — everything in basic + AI page understanding, test generation,
+           bug explanation, executive report
+
+Optional:
+  visual regression — screenshot comparison against stored baselines
 """
 
 from __future__ import annotations
@@ -21,23 +23,27 @@ from loguru import logger
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
-from config.browser           import get_driver
-from config.settings          import BROWSER_ENGINE, REPORT_FORMAT
-from crawler.crawler          import Crawler
-from crawler.sitemap          import PageInfo
-from detector                 import UIDetectionEngine
-from ai.page_understanding    import PageUnderstandingAgent
-from ai.testcase_generator    import TestCaseGeneratorAgent
-from ai.bug_explainer         import BugExplainerAgent
-from ai.report_writer         import ReportWriterAgent
-from executor.selenium_runner import SeleniumRunner, TestResult
+from config.browser             import get_driver
+from config.settings            import (
+    BROWSER_ENGINE, REPORT_FORMAT,
+    BASELINE_DIR, VISUAL_DIFF_DIR, VISUAL_THRESHOLD,
+)
+from crawler.crawler            import Crawler
+from crawler.sitemap            import PageInfo
+from detector                   import UIDetectionEngine
+from ai.page_understanding      import PageUnderstandingAgent
+from ai.testcase_generator      import TestCaseGeneratorAgent
+from ai.bug_explainer           import BugExplainerAgent
+from ai.report_writer           import ReportWriterAgent
+from executor.selenium_runner   import SeleniumRunner, TestResult
 from executor.playwright_runner import PlaywrightRunner
-from modules.login            import LoginModule
-from modules.accessibility    import AccessibilityChecker
-from modules.security         import SecurityScanner
-from reporter.html_report     import HTMLReporter
-from reporter.pdf_report      import PDFReporter
-from reporter.screenshots     import ScreenshotManager
+from modules.login              import LoginModule
+from modules.accessibility      import AccessibilityChecker
+from modules.security           import SecurityScanner
+from modules.visual_regression  import VisualRegressionTester, VisualResult
+from reporter.html_report       import HTMLReporter
+from reporter.pdf_report        import PDFReporter
+from reporter.screenshots       import ScreenshotManager
 
 
 console = Console()
@@ -46,61 +52,58 @@ console = Console()
 @dataclass
 class SessionConfig:
     """Configuration for a single BugHunter session."""
-    target_url:         str
-    username:           str  = ""
-    password:           str  = ""
-    login_url:          str  = ""
-    run_accessibility:  bool = True
-    run_security:       bool = True
-    ai_mode:            bool = False   # False = basic mode (no AI tokens used)
+    target_url:        str
+    username:          str  = ""
+    password:          str  = ""
+    login_url:         str  = ""
+    run_accessibility: bool = True
+    run_security:      bool = True
+    ai_mode:           bool = False
+    run_visual:        bool = False   # visual regression
+    approve_baselines: bool = False   # replace baselines with current screenshots
 
 
 @dataclass
 class SessionResult:
     """Full output of a completed BugHunter session."""
-    target_url:       str
-    engine:           str
-    mode:             str
-    duration:         str
-    pages:            list[dict] = field(default_factory=list)
-    bugs:             list[dict] = field(default_factory=list)
+    target_url:        str
+    engine:            str
+    mode:              str
+    duration:          str
+    pages:             list[dict] = field(default_factory=list)
+    bugs:              list[dict] = field(default_factory=list)
     security_findings: list[dict] = field(default_factory=list)
-    executive_report: dict       = field(default_factory=dict)
-    report_paths:     list[Path] = field(default_factory=list)
-    total_tests:      int = 0
-    passed:           int = 0
-    failed:           int = 0
-    skipped:          int = 0
+    visual_results:    list[dict] = field(default_factory=list)
+    executive_report:  dict       = field(default_factory=dict)
+    report_paths:      list[Path] = field(default_factory=list)
+    total_tests:       int = 0
+    passed:            int = 0
+    failed:            int = 0
+    skipped:           int = 0
 
 
 class MasterAgent:
-    """
-    Orchestrates the entire BugHunter AI testing workflow.
-
-    Usage
-    -----
-    agent = MasterAgent()
-    result = agent.run(SessionConfig(target_url="https://example.com", ai_mode=True))
-    """
+    """Orchestrates the entire BugHunter AI testing workflow."""
 
     def __init__(self) -> None:
-        self._ui_engine        = UIDetectionEngine()
-        self._a11y_checker     = AccessibilityChecker()
-        self._security_scanner = SecurityScanner()
-        # AI agents — instantiated but only called when ai_mode=True
-        self._page_ai  = PageUnderstandingAgent()
-        self._tc_gen   = TestCaseGeneratorAgent()
-        self._bug_ai   = BugExplainerAgent()
-        self._report_ai = ReportWriterAgent()
+        self._ui_engine         = UIDetectionEngine()
+        self._a11y_checker      = AccessibilityChecker()
+        self._security_scanner  = SecurityScanner()
+        self._page_ai           = PageUnderstandingAgent()
+        self._tc_gen            = TestCaseGeneratorAgent()
+        self._bug_ai            = BugExplainerAgent()
+        self._report_ai         = ReportWriterAgent()
 
     # ── Entry point ────────────────────────────────────────────────────────────
 
     def run(self, config: SessionConfig) -> SessionResult:
         mode_label = "[bold magenta]AI Mode[/]" if config.ai_mode else "[bold cyan]Basic Mode[/]"
-        console.rule(f"[bold cyan]🐛 BugHunter AI[/] — Starting session")
+        console.rule("[bold cyan]🐛 BugHunter AI[/] — Starting session")
         console.print(f"  Target  : [cyan]{config.target_url}[/]")
         console.print(f"  Engine  : [yellow]{BROWSER_ENGINE}[/]")
         console.print(f"  Mode    : {mode_label}")
+        if config.run_visual:
+            console.print("  Visual  : [bold green]Enabled[/]")
         console.print()
 
         start  = time.time()
@@ -117,11 +120,10 @@ class MasterAgent:
 
     def _run_session(self, driver: Any, config: SessionConfig, start: float) -> SessionResult:
 
-        # ── Step 1: Login (optional) ──────────────────────────────────────────
+        # ── Step 1: Login ─────────────────────────────────────────────────────
         if config.username and config.password:
             console.print("[bold]Step 1:[/] Attempting login …")
-            login_mod = LoginModule(driver)
-            login_mod.detect_and_login(
+            LoginModule(driver).detect_and_login(
                 config.username,
                 config.password,
                 config.login_url or config.target_url,
@@ -136,10 +138,12 @@ class MasterAgent:
         # ── Step 2b: Site-wide security exposure scan ─────────────────────────
         all_security_findings: list[dict] = []
         if config.run_security:
-            console.print("[bold]Step 2b:[/] Running site-wide security exposure scan …")
+            console.print("[bold]Step 2b:[/] Running site-wide security scan …")
             try:
                 site_findings = self._security_scanner.scan_site_exposure(config.target_url)
-                all_security_findings += [self._finding_to_dict(f, config.target_url) for f in site_findings]
+                all_security_findings += [
+                    self._finding_to_dict(f, config.target_url) for f in site_findings
+                ]
                 console.print(f"  Found [yellow]{len(site_findings)}[/] site-wide security findings")
             except Exception as exc:
                 logger.warning("Site-wide security scan failed: {}", exc)
@@ -151,13 +155,23 @@ class MasterAgent:
             else SeleniumRunner(driver)
         )
 
-        # ── Step 4: Per-page pipeline ─────────────────────────────────────────
+        # ── Step 4: Visual regression tester (if enabled) ─────────────────────
+        visual_tester: VisualRegressionTester | None = None
+        if config.run_visual:
+            visual_tester = VisualRegressionTester(
+                driver=driver,
+                baseline_dir=BASELINE_DIR,
+                diff_dir=VISUAL_DIFF_DIR,
+                threshold_pct=VISUAL_THRESHOLD,
+            )
+
+        # ── Step 5: Per-page pipeline ─────────────────────────────────────────
         screenshot_mgr  = ScreenshotManager(driver)
         page_summaries: list[dict] = []
         all_bugs:       list[dict] = []
+        all_visual:     list[dict] = []
 
-        step_label = "Step 3" if not config.run_security else "Step 3"
-        console.print(f"[bold]{step_label}:[/] Processing pages …")
+        console.print("[bold]Step 3:[/] Processing pages …")
 
         with Progress(
             SpinnerColumn(),
@@ -172,49 +186,67 @@ class MasterAgent:
                 summary = self._process_page(
                     page, driver, runner, screenshot_mgr,
                     config, all_bugs, all_security_findings,
+                    visual_tester, all_visual,
                 )
                 page_summaries.append(summary)
                 progress.advance(task)
 
-        # ── Step 5: Executive report ──────────────────────────────────────────
+        # ── Step 6: Approve baselines if requested ────────────────────────────
+        if config.run_visual and config.approve_baselines and visual_tester:
+            console.print("[bold]Step 4:[/] Approving new baselines …")
+            approved = 0
+            for page in sitemap.pages():
+                if visual_tester.approve_baseline(page.url):
+                    approved += 1
+            console.print(f"  Approved [green]{approved}[/] new baselines")
+
+        # ── Step 7: Executive report ──────────────────────────────────────────
         console.print("[bold]Step 5:[/] Generating report …")
         total   = sum(s["total"]   for s in page_summaries)
         passed  = sum(s["passed"]  for s in page_summaries)
         failed  = sum(s["failed"]  for s in page_summaries)
         skipped = sum(s["skipped"] for s in page_summaries)
 
+        visual_regressions = sum(
+            1 for v in all_visual if v.get("status") == "failed"
+        )
+
         if config.ai_mode:
             session_summary = {
-                "target_url":    config.target_url,
-                "pages_crawled": len(sitemap),
-                "total_tests":   total,
-                "passed":        passed,
-                "failed":        failed,
-                "skipped":       skipped,
-                "critical_bugs": [b for b in all_bugs
-                                   if b.get("analysis", {}).get("severity") == "critical"],
+                "target_url":          config.target_url,
+                "pages_crawled":       len(sitemap),
+                "total_tests":         total,
+                "passed":              passed,
+                "failed":              failed,
+                "skipped":             skipped,
+                "visual_regressions":  visual_regressions,
+                "critical_bugs":       [
+                    b for b in all_bugs
+                    if b.get("analysis", {}).get("severity") == "critical"
+                ],
             }
             exec_report = self._report_ai.write(session_summary)
         else:
-            # Basic mode — build exec report locally, no AI call
             score = int((passed / total * 100)) if total else 0
             exec_report = {
                 "executive_summary": (
                     f"Basic mode test run completed. {passed}/{total} tests passed across "
-                    f"{len(sitemap)} pages. No AI analysis — run with --mode ai for full insights."
+                    f"{len(sitemap)} pages."
+                    + (f" {visual_regressions} visual regression(s) detected." if visual_regressions else "")
+                    + " Run with --mode ai for full AI insights."
                 ),
                 "major_risks":               [],
                 "critical_bugs":             [],
                 "recommendations":           [
-                    "Run with --mode ai to get AI-powered page analysis, test case generation, and bug explanations.",
+                    "Run with --mode ai for AI-powered page analysis and bug explanations.",
                 ],
                 "quality_score":             score,
                 "deployment_recommendation": "Conditional Go" if score >= 70 else "No-Go",
-                "deployment_rationale":      "Based on generic test pass rate only (basic mode).",
+                "deployment_rationale":      "Based on generic test pass rate (basic mode).",
             }
 
-        # ── Step 6: Render reports ────────────────────────────────────────────
-        duration = f"{time.time() - start:.1f}s"
+        # ── Step 8: Render reports ────────────────────────────────────────────
+        duration         = f"{time.time() - start:.1f}s"
         deduped_bugs     = self._deduplicate_bugs(all_bugs)
         deduped_security = self._deduplicate_security_findings(all_security_findings)
 
@@ -226,6 +258,7 @@ class MasterAgent:
             "pages":             page_summaries,
             "bugs":              deduped_bugs,
             "security_findings": deduped_security,
+            "visual_results":    all_visual,
             "executive_report":  exec_report,
         }
 
@@ -235,6 +268,7 @@ class MasterAgent:
             total, passed, failed, skipped,
             exec_report, report_paths,
             len(deduped_security),
+            visual_regressions,
             config.ai_mode,
         )
 
@@ -246,6 +280,7 @@ class MasterAgent:
             pages=page_summaries,
             bugs=deduped_bugs,
             security_findings=deduped_security,
+            visual_results=all_visual,
             executive_report=exec_report,
             report_paths=report_paths,
             total_tests=total,
@@ -265,44 +300,77 @@ class MasterAgent:
         config:                SessionConfig,
         all_bugs:              list[dict],
         all_security_findings: list[dict],
+        visual_tester:         VisualRegressionTester | None,
+        all_visual:            list[dict],
     ) -> dict:
         logger.info("Processing page: {}", page.url)
 
-        # Navigate and refresh HTML after JS render
         try:
             if "selenium" in type(driver).__module__:
                 driver.get(page.url)
             else:
                 driver.goto(page.url)
             time.sleep(1)
-            page.html = driver.page_source if hasattr(driver, "page_source") else driver.content()
+            page.html = (
+                driver.page_source
+                if hasattr(driver, "page_source")
+                else driver.content()
+            )
         except Exception as exc:
             logger.warning("Could not navigate to {}: {}", page.url, exc)
 
-        # UI detection (always runs)
+        # UI detection
         components      = self._ui_engine.detect(page.html, driver)
         page.components = components
 
-        # Accessibility (always runs unless --no-accessibility)
+        # Accessibility
         a11y_issues = []
         if config.run_accessibility:
             a11y_issues = self._a11y_checker.check(page.html)
 
-        # Security (always runs unless --no-security)
+        # Security
         security_findings = []
         if config.run_security:
             try:
                 security_findings = self._security_scanner.scan(page.url, page.html)
-                all_security_findings += [self._finding_to_dict(f, page.url) for f in security_findings]
+                all_security_findings += [
+                    self._finding_to_dict(f, page.url) for f in security_findings
+                ]
             except Exception as exc:
                 logger.warning("Security scan failed for {}: {}", page.url, exc)
 
-        # ── AI path ───────────────────────────────────────────────────────────
+        # Visual regression
+        visual_result: dict = {}
+        if visual_tester:
+            try:
+                vr = visual_tester.check(page.url)
+                visual_result = {
+                    "url":            vr.url,
+                    "status":         vr.status,
+                    "diff_percent":   vr.diff_percent,
+                    "changed_pixels": vr.changed_pixels,
+                    "total_pixels":   vr.total_pixels,
+                    "baseline_path":  vr.baseline_path,
+                    "current_path":   vr.current_path,
+                    "diff_path":      vr.diff_path,
+                    "message":        vr.message,
+                }
+                all_visual.append(visual_result)
+                if vr.status == "failed":
+                    logger.warning(
+                        "Visual regression on {} — {:.2f}% changed",
+                        page.url, vr.diff_percent,
+                    )
+                elif vr.status == "baseline_created":
+                    logger.info("Visual baseline saved for {}", page.url)
+            except Exception as exc:
+                logger.warning("Visual check failed for {}: {}", page.url, exc)
+
+        # AI vs Basic test generation
         if config.ai_mode:
-            analysis     = self._page_ai.analyse(page)
-            test_cases   = self._tc_gen.generate(analysis)
+            analysis   = self._page_ai.analyse(page)
+            test_cases = self._tc_gen.generate(analysis)
         else:
-            # Basic mode: skip AI, use fallback analysis + generic tests
             analysis = {
                 "page_name":   page.title or page.url,
                 "page_type":   "Unknown",
@@ -316,10 +384,10 @@ class MasterAgent:
         page.analysis   = analysis
         page.test_cases = test_cases
 
-        # Execute tests (always runs)
+        # Execute tests
         results: list[TestResult] = runner.run_tests(test_cases, page.url, components)
 
-        # Bug analysis — only in AI mode
+        # Bug analysis (AI mode only)
         for res in results:
             if config.ai_mode and res.status in ("failed", "error") and res.error_message:
                 analysis_dict = self._bug_ai.explain(
@@ -360,6 +428,7 @@ class MasterAgent:
             "failed":                 pg_failed,
             "skipped":                pg_skipped,
             "security_findings_count": len(security_findings),
+            "visual_result":          visual_result,
             "a11y_issues": [
                 {"rule": i.rule, "severity": i.severity, "description": i.description}
                 for i in a11y_issues
@@ -389,7 +458,6 @@ class MasterAgent:
                 grouped[key] = dict(f)
                 grouped[key]["page_urls"] = []
             grouped[key]["page_urls"].append(f.get("page_url", ""))
-
         deduped = []
         for entry in grouped.values():
             count  = len(entry["page_urls"])
@@ -399,7 +467,6 @@ class MasterAgent:
                 f"{count} page{'s' if count != 1 else ''}: {', '.join(sample)}{suffix}"
             )
             deduped.append(entry)
-
         order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         deduped.sort(key=lambda x: order.get(x.get("severity", "info"), 5))
         return deduped
@@ -417,7 +484,6 @@ class MasterAgent:
                     "page_urls":  [],
                 }
             grouped[key]["page_urls"].append(bug.get("page_url", ""))
-
         deduped = []
         for entry in grouped.values():
             count  = len(entry["page_urls"])
@@ -460,19 +526,24 @@ class MasterAgent:
         total: int, passed: int, failed: int, skipped: int,
         exec_report: dict, report_paths: list[Path],
         security_count: int = 0,
+        visual_regressions: int = 0,
         ai_mode: bool = False,
     ) -> None:
         console.print()
         console.rule("[bold green]Session Complete[/]")
         mode_str = "[bold magenta]AI Mode[/]" if ai_mode else "[bold cyan]Basic Mode[/]"
-        console.print(f"  Mode    : {mode_str}")
-        console.print(f"  Total   : {total}")
-        console.print(f"  [green]Passed[/]  : {passed}")
-        console.print(f"  [red]Failed[/]  : {failed}")
-        console.print(f"  [yellow]Skipped[/] : {skipped}")
+        console.print(f"  Mode     : {mode_str}")
+        console.print(f"  Total    : {total}")
+        console.print(f"  [green]Passed[/]   : {passed}")
+        console.print(f"  [red]Failed[/]   : {failed}")
+        console.print(f"  [yellow]Skipped[/]  : {skipped}")
         console.print(f"  [magenta]Security[/] : {security_count} findings")
-        console.print(f"  Score   : [bold yellow]{exec_report.get('quality_score', '?')}[/] / 100")
-        console.print(f"  Deploy  : [bold]{exec_report.get('deployment_recommendation', '?')}[/]")
+        if visual_regressions > 0:
+            console.print(f"  [bold red]Visual[/]   : {visual_regressions} regression(s) detected ⚠")
+        else:
+            console.print(f"  [green]Visual[/]   : No regressions")
+        console.print(f"  Score    : [bold yellow]{exec_report.get('quality_score', '?')}[/] / 100")
+        console.print(f"  Deploy   : [bold]{exec_report.get('deployment_recommendation', '?')}[/]")
         console.print()
         for p in report_paths:
             console.print(f"  [cyan]Report[/] → {p}")

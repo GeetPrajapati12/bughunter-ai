@@ -21,18 +21,19 @@ REPORTS_DIR:     Path = ROOT_DIR / "reports"
 SCREENSHOTS_DIR: Path = ROOT_DIR / "screenshots"
 LOGS_DIR:        Path = ROOT_DIR / "logs"
 CACHE_DIR:       Path = ROOT_DIR / "cache"
+BASELINE_DIR:    Path = ROOT_DIR / "baselines"    # visual regression baselines
+VISUAL_DIFF_DIR: Path = ROOT_DIR / "visual_diffs" # per-run diff images
 
-for _d in (REPORTS_DIR, SCREENSHOTS_DIR, LOGS_DIR, CACHE_DIR):
+for _d in (REPORTS_DIR, SCREENSHOTS_DIR, LOGS_DIR, CACHE_DIR, BASELINE_DIR, VISUAL_DIFF_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # ── AI Provider ───────────────────────────────────────────────────────────────
-# Options: anthropic | openai | gemini | groq | ollama
-AI_PROVIDER:     str   = os.getenv("AI_PROVIDER",     "anthropic")
-AI_MODEL:        str   = os.getenv("AI_MODEL",        "claude-sonnet-4-6")
-AI_MAX_TOKENS:   int   = int(os.getenv("AI_MAX_TOKENS", "4096"))
-AI_TEMPERATURE:  float = float(os.getenv("AI_TEMPERATURE", "0.2"))
+AI_PROVIDER:    str   = os.getenv("AI_PROVIDER",    "anthropic")
+AI_MODEL:       str   = os.getenv("AI_MODEL",       "claude-sonnet-4-6")
+AI_MAX_TOKENS:  int   = int(os.getenv("AI_MAX_TOKENS", "4096"))
+AI_TEMPERATURE: float = float(os.getenv("AI_TEMPERATURE", "0.2"))
 
-# ── API Keys (only the one matching AI_PROVIDER is required) ──────────────────
+# ── API Keys ──────────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY:    str = os.getenv("OPENAI_API_KEY",    "")
 GEMINI_API_KEY:    str = os.getenv("GEMINI_API_KEY",    "")
@@ -54,10 +55,16 @@ MAX_DEPTH:           int   = int(os.getenv("MAX_DEPTH",           "3"))
 CRAWL_DELAY_SECONDS: float = float(os.getenv("CRAWL_DELAY_SECONDS", "1.0"))
 RESPECT_ROBOTS_TXT:  bool  = os.getenv("RESPECT_ROBOTS_TXT", "true").lower() == "true"
 
+# ── Visual Regression ─────────────────────────────────────────────────────────
+# VISUAL_THRESHOLD: max % of pixels allowed to change before flagging as failure
+# Default 0.1 means 0.1% — raise it if you get too many false positives on
+# sites with animated elements or dynamic content (e.g. live clocks, ads).
+VISUAL_THRESHOLD: float = float(os.getenv("VISUAL_THRESHOLD", "0.1"))
+
 # ── Reporting ─────────────────────────────────────────────────────────────────
-REPORT_FORMAT:       str  = os.getenv("REPORT_FORMAT", "html")
-CAPTURE_VIDEO:       bool = os.getenv("CAPTURE_VIDEO", "false").lower() == "true"
-SCREENSHOT_ON_FAIL:  bool = os.getenv("SCREENSHOT_ON_FAIL", "true").lower() == "true"
+REPORT_FORMAT:      str  = os.getenv("REPORT_FORMAT", "html")
+CAPTURE_VIDEO:      bool = os.getenv("CAPTURE_VIDEO", "false").lower() == "true"
+SCREENSHOT_ON_FAIL: bool = os.getenv("SCREENSHOT_ON_FAIL", "true").lower() == "true"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL: str  = os.getenv("LOG_LEVEL", "INFO")
