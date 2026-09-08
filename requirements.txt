@@ -22,8 +22,11 @@ anthropic==0.27.0
 
 # Ollama — no pip package needed, just install from https://ollama.com
 
-# ── Reporting ─────────────────────────────────────────────────────────────────
+# ── Visual Regression ─────────────────────────────────────────────────────────
 Pillow==10.3.0
+numpy==1.26.4
+
+# ── Reporting ─────────────────────────────────────────────────────────────────
 jinja2==3.1.4
 weasyprint==62.3
 
