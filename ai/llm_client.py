@@ -7,8 +7,9 @@ Supports:
   - Anthropic  (Claude)
   - OpenAI     (GPT-4o, GPT-4 Turbo, etc.)
   - Google     (Gemini 1.5 Pro, Flash)
-  - Groq       (Llama 3, Mixtral — free tier available)
+  - Groq       (fast inference, free tier available)
   - Ollama     (any local model — completely free, no key needed)
+  - OmniRoute  (231+ providers, ~1.6B free tokens/month, auto-fallback)
 
 All agents import ONLY this module. Switching providers requires
 only a change in .env — zero code changes anywhere else.
@@ -28,6 +29,8 @@ from config.settings import (
     GEMINI_API_KEY,
     GROQ_API_KEY,
     OLLAMA_BASE_URL,
+    OMNIROUTE_API_KEY,
+    OMNIROUTE_BASE_URL,
 )
 
 
@@ -61,10 +64,12 @@ class LLMClient:
                 return self._chat_groq(prompt, tokens)
             elif self.provider == "ollama":
                 return self._chat_ollama(prompt, tokens)
+            elif self.provider == "omniroute":
+                return self._chat_omniroute(prompt, tokens)
             else:
                 raise ValueError(
                     f"Unknown AI_PROVIDER: '{self.provider}'. "
-                    "Choose from: anthropic, openai, gemini, groq, ollama"
+                    "Choose from: anthropic, openai, gemini, groq, ollama, omniroute"
                 )
         except Exception as exc:
             logger.error("LLMClient [{}] error: {}", self.provider, exc)
@@ -82,6 +87,8 @@ class LLMClient:
             return bool(GROQ_API_KEY)
         elif self.provider == "ollama":
             return True   # no key needed
+        elif self.provider == "omniroute":
+            return bool(OMNIROUTE_BASE_URL)  # key is optional for free models
         return False
 
     # ── Provider builders ──────────────────────────────────────────────────────
@@ -117,8 +124,23 @@ class LLMClient:
                 raise ImportError("Run: pip install groq")
 
         elif self.provider == "ollama":
-            # No client object needed — uses requests directly
-            return None
+            return None   # uses requests directly, no client object needed
+
+        elif self.provider == "omniroute":
+            # OmniRoute exposes an OpenAI-compatible endpoint,
+            # so we use the OpenAI client pointed at OmniRoute's base URL.
+            try:
+                from openai import OpenAI
+                return OpenAI(
+                    api_key=OMNIROUTE_API_KEY or "omniroute",  # key optional for free models
+                    base_url=OMNIROUTE_BASE_URL,
+                )
+            except ImportError:
+                raise ImportError(
+                    "OmniRoute uses the OpenAI client. Run: pip install openai\n"
+                    "Then install OmniRoute: npm install -g omniroute && omniroute\n"
+                    "See: https://github.com/diegosouzapw/OmniRoute"
+                )
 
         else:
             raise ValueError(f"Unknown AI_PROVIDER: '{self.provider}'")
@@ -177,3 +199,17 @@ class LLMClient:
         )
         response.raise_for_status()
         return response.json()["response"]
+
+    def _chat_omniroute(self, prompt: str, max_tokens: int) -> str:
+        """
+        OmniRoute uses an OpenAI-compatible endpoint so we call it
+        exactly like OpenAI — the client is already pointed at
+        OMNIROUTE_BASE_URL from _build_client().
+        """
+        response = self._client.chat.completions.create(  # type: ignore
+            model=self.model,
+            max_tokens=max_tokens,
+            temperature=AI_TEMPERATURE,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content

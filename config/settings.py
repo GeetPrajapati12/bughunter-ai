@@ -21,13 +21,14 @@ REPORTS_DIR:     Path = ROOT_DIR / "reports"
 SCREENSHOTS_DIR: Path = ROOT_DIR / "screenshots"
 LOGS_DIR:        Path = ROOT_DIR / "logs"
 CACHE_DIR:       Path = ROOT_DIR / "cache"
-BASELINE_DIR:    Path = ROOT_DIR / "baselines"    # visual regression baselines
-VISUAL_DIFF_DIR: Path = ROOT_DIR / "visual_diffs" # per-run diff images
+BASELINE_DIR:    Path = ROOT_DIR / "baselines"
+VISUAL_DIFF_DIR: Path = ROOT_DIR / "visual_diffs"
 
 for _d in (REPORTS_DIR, SCREENSHOTS_DIR, LOGS_DIR, CACHE_DIR, BASELINE_DIR, VISUAL_DIFF_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # ── AI Provider ───────────────────────────────────────────────────────────────
+# Options: anthropic | openai | gemini | groq | ollama | omniroute
 AI_PROVIDER:    str   = os.getenv("AI_PROVIDER",    "anthropic")
 AI_MODEL:       str   = os.getenv("AI_MODEL",       "claude-sonnet-4-6")
 AI_MAX_TOKENS:  int   = int(os.getenv("AI_MAX_TOKENS", "4096"))
@@ -39,6 +40,14 @@ OPENAI_API_KEY:    str = os.getenv("OPENAI_API_KEY",    "")
 GEMINI_API_KEY:    str = os.getenv("GEMINI_API_KEY",    "")
 GROQ_API_KEY:      str = os.getenv("GROQ_API_KEY",      "")
 OLLAMA_BASE_URL:   str = os.getenv("OLLAMA_BASE_URL",   "http://localhost:11434")
+
+# ── OmniRoute ─────────────────────────────────────────────────────────────────
+# OmniRoute is a free self-hosted AI gateway giving access to 231+ providers.
+# Install: npm install -g omniroute && omniroute
+# GitHub:  https://github.com/diegosouzapw/OmniRoute
+# The API key is optional for free models — leave blank to use free tier.
+OMNIROUTE_API_KEY:  str = os.getenv("OMNIROUTE_API_KEY",  "")
+OMNIROUTE_BASE_URL: str = os.getenv("OMNIROUTE_BASE_URL", "http://localhost:20128/v1")
 
 # ── Browser ───────────────────────────────────────────────────────────────────
 BROWSER_HEADLESS:      bool  = os.getenv("BROWSER_HEADLESS", "true").lower() == "true"
@@ -56,9 +65,6 @@ CRAWL_DELAY_SECONDS: float = float(os.getenv("CRAWL_DELAY_SECONDS", "1.0"))
 RESPECT_ROBOTS_TXT:  bool  = os.getenv("RESPECT_ROBOTS_TXT", "true").lower() == "true"
 
 # ── Visual Regression ─────────────────────────────────────────────────────────
-# VISUAL_THRESHOLD: max % of pixels allowed to change before flagging as failure
-# Default 0.1 means 0.1% — raise it if you get too many false positives on
-# sites with animated elements or dynamic content (e.g. live clocks, ads).
 VISUAL_THRESHOLD: float = float(os.getenv("VISUAL_THRESHOLD", "0.1"))
 
 # ── Reporting ─────────────────────────────────────────────────────────────────
